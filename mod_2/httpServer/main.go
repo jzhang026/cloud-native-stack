@@ -2,13 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -19,11 +22,27 @@ var logger = log.New(os.Stdout, "[HttpServer] ", log.LstdFlags | log.Lshortfile)
 func main() {
 	http.HandleFunc("/", withLogging(index))
 	http.HandleFunc("/healthz", withLogging(healthz))
-	logger.Print("server listening on 0.0.0.0:80")
-	if err := http.ListenAndServe("0.0.0.0:80", nil); err != nil {
-		logger.Fatal("failed to start server")
+
+	// request to this controller then shut down server
+	// to test graceful shutdown
+	http.HandleFunc("/slow_response",withLogging(slow))
+	var server = &http.Server{
+		Addr:"0.0.0.0:80",
+		Handler: nil,
 	}
 
+	go func() {
+		server.ListenAndServe()
+	}()
+
+	ch := make(chan os.Signal)
+	// listen：SIGINT, SIGTERM, SIGQUIT
+	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	<- ch
+	// Server.Shutdown gracefully
+	if err := server.Shutdown(context.Background()); err != nil {
+		log.Fatal("Server Shutdown:", err)
+	}
 
 }
 
@@ -45,6 +64,15 @@ func index(w http.ResponseWriter, r *http.Request) {
 func healthz(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("health checks ok"))
+}
+
+func slow(w http.ResponseWriter, r *http.Request) {
+	// request to this controller then shut down server
+	// to test graceful shutdown
+	text := "takes 10s to be completed"
+	time.Sleep(time.Second * 10)
+	w.WriteHeader(666)
+	io.WriteString(w, text)
 }
 
 // HTTPReqInfo describes info about a HTTP request

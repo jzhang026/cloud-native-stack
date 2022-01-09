@@ -1,90 +1,46 @@
 package main
 
+// 多消费者，多生产者
 import (
-	"context"
-	"time"
+	"fmt"
+	"sync"
+	"sync/atomic"
 )
 
+//var consumerChannel  chan uint64
+var consumerChannel  = make(chan uint64)
+var dataChannel = make(chan uint64)
+var seq uint64 = 0
+
+func produce(produceId int) {
+	for consumeId := range consumerChannel {
+		curr := atomic.AddUint64(&seq, 1)
+		dataChannel <- curr
+		fmt.Printf("## 'Producer-%d' generate value [%d] for Consumer - %d \n", produceId, curr, consumeId)
+	}
+}
+
+func consume(id int, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for i := 0; i < 10; i++ {
+		consumerChannel <- uint64(id)
+		fmt.Printf("** 'Consumer-%d' get value [%d]\n", id, <-dataChannel)
+	}
+}
+
 func main() {
-	ch := make(chan int, 10)
-	defer close(ch)
-	ctx, cancel := context.WithCancel(context.Background())
-	// start producer
-	go func(ch chan<- int) {
-		producer := Producer{
-			ctx:      ctx,
-			interval: time.Second,
-			next:     0, // value start from `0`
-		}
-
-		producer.produce(ch)
-	}(ch)
-
-	// start consumer
-	go func(ch <-chan int) {
-		consumer := Consumer{ctx: ctx, interval: time.Second}
-
-		consumer.consume(ch)
-	}(ch)
-
-	// main process sleep for 10s, so that producer and consumer have enough time to process ten numbers as stipulated once per seconds
-	time.Sleep(10 * time.Second)
-
-	println("main process interrupt child process")
-	cancel()
-	//done <- false  -> this can not interrupt the subscribing sub process
-
-	// wait for 2s so that sub process got chance to receive the interrupted signal
-	time.Sleep(2 * time.Second)
-}
-
-type ProducerIF interface {
-	produce() error
-}
-
-type ConsumerIF interface {
-	consume() (int, error)
-}
-
-type Producer struct {
-	ctx      context.Context
-	interval time.Duration
-	next     int
-}
-
-type Consumer struct {
-	ctx      context.Context
-	interval time.Duration
-}
-
-func (p *Producer) produce(ch chan<- int) {
-	ticker := time.NewTicker(p.interval)
-	defer ticker.Stop()
-	for _ = range ticker.C {
-		select {
-		case <-p.ctx.Done():
-			println("[producer] process interrupted from main")
-			return
-		default:
-			println(" <- PRODUCE value: ", p.next)
-			ch <- p.next
-			p.next++
-		}
-
+	numOfProducer := 3
+	numOfConsumer := 10
+	for i :=0; i< numOfProducer; i++ {
+		go produce(i)
 	}
-}
 
-func (c *Consumer) consume(ch <-chan int) {
-	ticker := time.NewTicker(c.interval)
-	defer ticker.Stop()
-	for _ = range ticker.C {
-		select {
-		case <-c.ctx.Done():
-			println("[consumer] process interrupted from main")
-			return
-		default:
-			value := <-ch
-			println("  -> CONSUME value: ", value)
-		}
+	wg := sync.WaitGroup{}
+	wg.Add(numOfConsumer)
+	for j :=0; j< numOfConsumer; j++ {
+		go consume(j, &wg)
 	}
+	wg.Wait()
+	close(consumerChannel)
 }

@@ -1,8 +1,8 @@
-export tag=v1.1
+export tag=v1.2
 root:
 	export ROOT=github.com/jzhang026/cloud-native-stack/tree/main/mod_3
 
-release: build
+release:
 	echo "building httpserver container"
 	docker build -t msybe/httpserver:${tag} .
 
